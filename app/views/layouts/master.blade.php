@@ -2,33 +2,7 @@
 <html>
 	<head>
 		<title>Cards Against Humanity - Online (alpha)</title>
-		<style type="text/css">
-		body{
-			margin:0;
-			padding:0;
-		}
-		.header{
-			padding: 20px 0 20px 60px;
-			background-color: #000;
-			color: #fff;
-			font-size: 36px;
-			font-weight: bold;
-			font-family: verdana;
-		}
-		.button{
-			display: inline-block;
-			padding: 4px 10px;
-			background-color: #fff;
-			border: 2px solid #000;
-			text-decoration: none;
-			color: #000;
-		}
-		.credits{
-			float:right;
-			width:50%;
-			margin-top:25px;
-		}
-		</style>
+		<link href="css/styles.css" media="all" rel="stylesheet" type="text/css" />
 	</head>
 	<body>
 		<div class="header">
