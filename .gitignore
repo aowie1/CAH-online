@@ -11,3 +11,4 @@ bin-release/
 # information for Eclipse / Flash Builder.
 /vendor
 /app/config/database.php
+local
