@@ -570,11 +570,13 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use Illuminate\Config\FileLoader;
 use Illuminate\Container\Container;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Events\EventServiceProvider;
+use Illuminate\Foundation\ProviderRepository;
 use Illuminate\Routing\RoutingServiceProvider;
 use Illuminate\Exception\ExceptionServiceProvider;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -695,17 +697,6 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
         return 'C:\\BitNami\\wampstack-5.4.13-1\\apache2\\htdocs\\CAH-online\\vendor\\laravel\\framework\\src\\Illuminate\\Foundation' . '/start.php';
     }
     /**
-     * Register the aliased class loader.
-     *
-     * @param  array  $aliases
-     * @return void
-     */
-    public function registerAliasLoader(array $aliases)
-    {
-        $loader = AliasLoader::getInstance($aliases);
-        $loader->register();
-    }
-    /**
      * Start the exception handling for the request.
      *
      * @return void
@@ -774,7 +765,7 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
      * @param  array   $arguments
      * @return string
      */
-    protected function detectConsoleEnvironment($base, $environments, array $arguments)
+    protected function detectConsoleEnvironment($base, $environments, $arguments)
     {
         foreach ($arguments as $key => $value) {
             // For the console environment, we'll just look for an argument that starts
@@ -1017,25 +1008,6 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
         return $this->dispatch($request);
     }
     /**
-     * Determine if the application is currently down for maintenance.
-     *
-     * @return bool
-     */
-    public function isDownForMaintenance()
-    {
-        return file_exists($this['path'] . '/storage/meta/down');
-    }
-    /**
-     * Register a maintenance mode event listener.
-     *
-     * @param  \Closure  $callback
-     * @return void
-     */
-    public function down(Closure $callback)
-    {
-        $this['events']->listen('illuminate.app.down', $callback);
-    }
-    /**
      * Boot the application's service providers.
      *
      * @return void
@@ -1116,16 +1088,23 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
         return $value->prepare($this['request']);
     }
     /**
-     * Set the current application locale.
+     * Determine if the application is currently down for maintenance.
      *
-     * @param  string  $locale
+     * @return bool
+     */
+    public function isDownForMaintenance()
+    {
+        return file_exists($this['path'] . '/storage/meta/down');
+    }
+    /**
+     * Register a maintenance mode event listener.
+     *
+     * @param  \Closure  $callback
      * @return void
      */
-    public function setLocale($locale)
+    public function down(Closure $callback)
     {
-        $this['config']->set('app.locale', $locale);
-        $this['translator']->setLocale($locale);
-        $this['events']->fire('locale.changed', array($locale));
+        $this['events']->listen('illuminate.app.down', $callback);
     }
     /**
      * Throw an HttpException with the given data.
@@ -1176,6 +1155,37 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
         $this->error(function (FatalErrorException $e) use($callback) {
             return call_user_func($callback, $e);
         });
+    }
+    /**
+     * Get the configuration loader instance.
+     *
+     * @return \Illuminate\Config\LoaderInterface
+     */
+    public function getConfigLoader()
+    {
+        return new FileLoader(new Filesystem(), $this['path'] . '/config');
+    }
+    /**
+     * Get the service provider repository instance.
+     *
+     * @return \Illuminate\Foundation\ProviderRepository
+     */
+    public function getProviderRepository()
+    {
+        $manifest = $this['config']['app.manifest'];
+        return new ProviderRepository(new Filesystem(), $manifest);
+    }
+    /**
+     * Set the current application locale.
+     *
+     * @param  string  $locale
+     * @return void
+     */
+    public function setLocale($locale)
+    {
+        $this['config']->set('app.locale', $locale);
+        $this['translator']->setLocale($locale);
+        $this['events']->fire('locale.changed', array($locale));
     }
     /**
      * Get the service providers that have been loaded.
@@ -3552,10 +3562,11 @@ class ServerBag extends ParameterBag
     public function getHeaders()
     {
         $headers = array();
+        $contentHeaders = array('CONTENT_LENGTH' => true, 'CONTENT_MD5' => true, 'CONTENT_TYPE' => true);
         foreach ($this->parameters as $key => $value) {
             if (0 === strpos($key, 'HTTP_')) {
                 $headers[substr($key, 5)] = $value;
-            } elseif (in_array($key, array('CONTENT_LENGTH', 'CONTENT_MD5', 'CONTENT_TYPE'))) {
+            } elseif (isset($contentHeaders[$key])) {
                 $headers[$key] = $value;
             }
         }
@@ -6302,9 +6313,20 @@ class FileLoader implements LoaderInterface
         // precedence over them if we are currently in an environments setup.
         $file = "{$path}/{$environment}/{$group}.php";
         if ($this->files->exists($file)) {
-            $items = array_merge($items, $this->files->getRequire($file));
+            $items = $this->mergeEnvironment($items, $file);
         }
         return $items;
+    }
+    /**
+     * Merge the items in the given file into the items.
+     *
+     * @param  array   $items
+     * @param  string  $file
+     * @return array
+     */
+    protected function mergeEnvironment(array $items, $file)
+    {
+        return array_replace_recursive($items, $this->files->getRequire($file));
     }
     /**
      * Determine if the given group exists.
@@ -7310,6 +7332,12 @@ class SessionServiceProvider extends ServiceProvider
      */
     protected function registerCloseEvent()
     {
+        if ($this->getDriver() == 'array') {
+            return;
+        }
+        // The cookie toucher is responsbile for updating the expire time on the cookie
+        // so that it is refreshed for each page load. Otherwise it is only set here
+        // once by PHP and never updated on each subsequent page load of the apps.
         $this->registerCookieToucher();
         $app = $this->app;
         $this->app->close(function () use($app) {
@@ -7350,6 +7378,15 @@ class SessionServiceProvider extends ServiceProvider
     protected function getExpireTime($config)
     {
         return $config['lifetime'] == 0 ? 0 : time() + $config['lifetime'] * 60;
+    }
+    /**
+     * Get the session driver name.
+     *
+     * @return string
+     */
+    protected function getDriver()
+    {
+        return $this->app['config']['session.driver'];
     }
 }
 namespace Illuminate\View;
@@ -7722,17 +7759,28 @@ class Router
         // route explicitly for the developers, so reverse routing is possible.
         foreach ($routable as $method => $routes) {
             foreach ($routes as $route) {
-                $action = array('uses' => $controller . '@' . $method);
-                // If a given controller method has been named, we will assign the name to
-                // the controller action array. This provides for a short-cut to method
-                // naming, so you don't have to define an individual route for these.
-                if (isset($names[$method])) {
-                    $action['as'] = $names[$method];
-                }
-                $this->{$route['verb']}($route['uri'], $action);
+                $this->registerInspected($route, $controller, $method, $names);
             }
         }
         $this->addFallthroughRoute($controller, $uri);
+    }
+    /**
+     * Register an inspected controller route.
+     *
+     * @param  array   $route
+     * @param  string  $controller
+     * @param  string  $method
+     * @param  array   $names
+     * @return void
+     */
+    protected function registerInspected($route, $controller, $method, &$names)
+    {
+        $action = array('uses' => $controller . '@' . $method);
+        // If a given controller method has been named, we will assign the name to
+        // the controller action array. This provides for a short-cut to method
+        // naming, so you don't have to define an individual route for these.
+        $action['as'] = array_pull($names, $method);
+        $this->{$route['verb']}($route['uri'], $action);
     }
     /**
      * Add a fallthrough route for a controller.
@@ -7940,20 +7988,35 @@ class Router
      */
     public function getResourceUri($resource)
     {
-        if (!str_contains($resource, '.')) {
-            return $resource;
-        }
         // To create the nested resource URI, we will simply explode the segments and
         // create a base URI for each of them, then join all of them back together
         // with slashes. This should create the properly nested resource routes.
-        $nested = implode('/', array_map(function ($segment) {
-            return $segment . '/{' . $segment . '}';
-        }, $segments = explode('.', $resource)));
+        if (!str_contains($resource, '.')) {
+            return $resource;
+        }
+        $segments = explode('.', $resource);
+        $nested = $this->getNestedResourceUri($segments);
         // Once we have built the base URI, we'll remove the wildcard holder for this
         // base resource name so that the individual route adders can suffix these
         // paths however they need to, as some do not have any wildcards at all.
-        $last = $segments[count($segments) - 1];
+        $last = $this->getResourceWildcard(last($segments));
         return str_replace('/{' . $last . '}', '', $nested);
+    }
+    /**
+     * Get the URI for a nested resource segment array.
+     *
+     * @param  array   $segments
+     * @return string
+     */
+    protected function getNestedResourceUri(array $segments)
+    {
+        $me = $this;
+        // We will spin through the segments and create a place-holder for each of the
+        // resource segments, as well as the resource itself. Then we should get an
+        // entire string for the resource URI that contains all nested resources.
+        return implode('/', array_map(function ($s) use($me) {
+            return $s . '/{' . $me->getResourceWildcard($s) . '}';
+        }, $segments));
     }
     /**
      * Get the action array for a resource route.
@@ -7969,12 +8032,22 @@ class Router
         // If we have a group stack, we will append the full prefix onto the resource
         // route name so that we don't override other route with the same name but
         // a different prefix. We'll then return out the complete action arrays.
-        if (count($this->groupStack) > 0) {
-            $name = $this->getResourcePrefix($resource, $method);
-        } else {
-            $name = $resource . '.' . $method;
-        }
+        $name = $this->getResourceName($resource, $method);
         return array('as' => $name, 'uses' => $controller . '@' . $method);
+    }
+    /**
+     * Get the name for a given resource.
+     *
+     * @param  string  $resource
+     * @param  string  $name
+     * @return string
+     */
+    protected function getResourceName($resource, $method)
+    {
+        if (count($this->groupStack) == 0) {
+            return $resource . '.' . $method;
+        }
+        return $this->getResourcePrefix($resource, $method);
     }
     /**
      * Get the resource prefix for a resource route.
@@ -8000,7 +8073,17 @@ class Router
     protected function getBaseResource($resource)
     {
         $segments = explode('.', $resource);
-        return $segments[count($segments) - 1];
+        return $this->getResourceWildcard($segments[count($segments) - 1]);
+    }
+    /**
+     * Format a resource wildcard parameter.
+     *
+     * @param  string  $value
+     * @return string
+     */
+    public function getResourceWildcard($value)
+    {
+        return str_replace('-', '_', $value);
     }
     /**
      * Create a route group with shared attributes.
@@ -8567,7 +8650,7 @@ class Router
      */
     public function bind($key, $binder)
     {
-        $this->binders[$key] = $binder;
+        $this->binders[str_replace('-', '_', $key)] = $binder;
     }
     /**
      * Determine if a given key has a registered binder.
@@ -10108,7 +10191,6 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
             $saved = $this->performUpdate($query);
         } else {
             $saved = $this->performInsert($query);
-            $this->exists = $saved;
         }
         if ($saved) {
             $this->finishSave($options);
@@ -10185,6 +10267,10 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         } else {
             $query->insert($attributes);
         }
+        // We will go ahead and set the exists property to true, so that it is set when
+        // the created event is fired, just in case the developer tries to update it
+        // during the event. This will allow them to do so and run an update here.
+        $this->exists = true;
         $this->fireModelEvent('created', false);
         return true;
     }
@@ -10381,8 +10467,9 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
      */
     public static function trashed()
     {
-        $column = $this->getQualifiedDeletedAtColumn();
-        return $this->newQueryWithDeleted()->whereNotNull($column);
+        $instance = new static();
+        $column = $instance->getQualifiedDeletedAtColumn();
+        return $instance->newQueryWithDeleted()->whereNotNull($column);
     }
     /**
      * Get a new query builder instance for the connection.
@@ -10814,8 +10901,9 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         // If the "attribute" exists as a method on the model, we will just assume
         // it is a relationship and will load and return results from the query
         // and hydrate the relationship's value on the "relationships" array.
-        if (method_exists($this, $key)) {
-            $relations = $this->{$key}()->getResults();
+        $camelKey = camel_case($key);
+        if (method_exists($this, $camelKey)) {
+            $relations = $this->{$camelKey}()->getResults();
             return $this->relations[$key] = $relations;
         }
     }
@@ -11596,16 +11684,22 @@ class Store extends SymfonySession
         foreach ($this->get('flash.old', array()) as $old) {
             $this->forget($old);
         }
-        $this->put('flash.old', $this->get('flash.new'));
+        $this->put('flash.old', $this->get('flash.new', array()));
         $this->put('flash.new', array());
+    }
+    /**
+     * {@inheritdoc}
+     */
+    public function has($name)
+    {
+        return !is_null($this->get($name));
     }
     /**
      * {@inheritdoc}
      */
     public function get($name, $default = null)
     {
-        $value = parent::get($name);
-        return is_null($value) ? value($default) : $value;
+        return array_get($this->all(), $name, $default);
     }
     /**
      * Determine if the session contains old input.
@@ -11662,7 +11756,9 @@ class Store extends SymfonySession
      */
     public function put($key, $value)
     {
-        $this->set($key, $value);
+        $all = $this->all();
+        array_set($all, $key, $value);
+        $this->replace($all);
     }
     /**
      * Push a value onto a session array.
@@ -11751,7 +11847,9 @@ class Store extends SymfonySession
      */
     public function forget($key)
     {
-        return $this->remove($key);
+        $all = $this->all();
+        array_forget($all, $key);
+        $this->replace($all);
     }
     /**
      * Remove all of the items from the session.
@@ -12295,9 +12393,9 @@ class Encrypter
         // We'll go ahead and remove the PKCS7 padding from the encrypted value before
         // we decrypt it. Once we have the de-padded value, we will grab the vector
         // and decrypt the data, passing back the unserialized from of the value.
-        $value = $this->stripPadding(base64_decode($payload['value']));
+        $value = base64_decode($payload['value']);
         $iv = base64_decode($payload['iv']);
-        return unserialize(rtrim($this->mcryptDecrypt($value, $iv)));
+        return unserialize($this->stripPadding($this->mcryptDecrypt($value, $iv)));
     }
     /**
      * Run the mcrypt decryption routine for the value.
@@ -12360,7 +12458,7 @@ class Encrypter
     protected function stripPadding($value)
     {
         $pad = ord($value[($len = strlen($value)) - 1]);
-        return $this->paddingIsValid($pad, $value) ? substr($value, 0, -$pad) : $value;
+        return $this->paddingIsValid($pad, $value) ? substr($value, 0, strlen($value) - $pad) : $value;
     }
     /**
      * Determine if the given padding for a value is valid.
@@ -12371,7 +12469,8 @@ class Encrypter
      */
     protected function paddingIsValid($pad, $value)
     {
-        return $pad and $pad <= $this->block and preg_match('/' . chr($pad) . '{' . $pad . '}$/', $value);
+        $beforePad = strlen($value) - $pad;
+        return substr($value, $beforePad) == str_repeat(substr($value, -1), $pad);
     }
     /**
      * Verify that the encryption payload is valid.
@@ -15429,7 +15528,7 @@ class Environment
     public function make($view, $data = array(), $mergeData = array())
     {
         $path = $this->finder->find($view);
-        $data = array_merge($this->parseData($data), $mergeData);
+        $data = array_merge($mergeData, $this->parseData($data));
         return new View($this, $this->getEngineFromPath($path), $view, $path, $data);
     }
     /**
@@ -15539,9 +15638,14 @@ class Environment
      * @param  mixed   $value
      * @return void
      */
-    public function share($key, $value)
+    public function share($key, $value = null)
     {
-        $this->shared[$key] = $value;
+        if (!is_array($key)) {
+            return $this->shared[$key] = $value;
+        }
+        foreach ($key as $innerKey => $innerValue) {
+            $this->share($innerKey, $innerValue);
+        }
     }
     /**
      * Register a view composer event.
@@ -19141,6 +19245,18 @@ class PrettyPageHandler extends Handler
      */
     protected $editors = array('sublime' => 'subl://open?url=file://%file&line=%line', 'textmate' => 'txmt://open?url=file://%file&line=%line', 'emacs' => 'emacs://open?url=file://%file&line=%line', 'macvim' => 'mvim://open/?url=file://%file&line=%line');
     /**
+     * Constructor.
+     */
+    public function __construct()
+    {
+        if (extension_loaded('xdebug')) {
+            // Register editor using xdebug's file_link_format option.
+            $this->editors['xdebug'] = function ($file, $line) {
+                return str_replace(array('%f', '%l'), array($file, $line), ini_get('xdebug.file_link_format'));
+            };
+        }
+    }
+    /**
      * @return int|null
      */
     public function handle()
@@ -19164,8 +19280,11 @@ class PrettyPageHandler extends Handler
         $inspector = $this->getInspector();
         $frames = $inspector->getFrames();
         $v = (object) array('title' => $this->getPageTitle(), 'name' => explode('\\', $inspector->getExceptionName()), 'message' => $inspector->getException()->getMessage(), 'frames' => $frames, 'hasFrames' => !!count($frames), 'handler' => $this, 'handlers' => $this->getRun()->getHandlers(), 'pageStyle' => file_get_contents($cssFile), 'tables' => array('Server/Request Data' => $_SERVER, 'GET Data' => $_GET, 'POST Data' => $_POST, 'Files' => $_FILES, 'Cookies' => $_COOKIE, 'Session' => isset($_SESSION) ? $_SESSION : array(), 'Environment Variables' => $_ENV));
+        $extraTables = array_map(function ($table) {
+            return $table instanceof \Closure ? $table() : $table;
+        }, $this->getDataTables());
         // Add extra entries list of data tables:
-        $v->tables = array_merge($this->getDataTables(), $v->tables);
+        $v->tables = array_merge($extraTables, $v->tables);
         call_user_func(function () use($templateFile, $v) {
             // $e -> cleanup output, optionally preserving URIs as anchors:
             $e = function ($_, $allowLinks = false) {
@@ -19196,6 +19315,30 @@ class PrettyPageHandler extends Handler
     public function addDataTable($label, array $data)
     {
         $this->extraTables[$label] = $data;
+    }
+    /**
+     * Lazily adds an entry to the list of tables displayed in the table.
+     * The supplied callback argument will be called when the error is rendered,
+     * it should produce a simple associative array. Any nested arrays will
+     * be flattened with print_r.
+     * @param string   $label
+     * @param callable $callback Callable returning an associative array
+     */
+    public function addDataTableCallback($label, $callback)
+    {
+        if (!is_callable($callback)) {
+            throw new InvalidArgumentException('Expecting callback argument to be callable');
+        }
+        $this->extraTables[$label] = function () use($callback) {
+            try {
+                $result = call_user_func($callback);
+                // Only return the result if it can be iterated over by foreach().
+                return is_array($result) || $result instanceof \Traversable ? $result : array();
+            } catch (\Exception $e) {
+                // Don't allow failiure to break the rendering of the original exception.
+                return array();
+            }
+        };
     }
     /**
      * Returns all the extra data tables registered with this handler.
@@ -19247,7 +19390,7 @@ class PrettyPageHandler extends Handler
     public function setEditor($editor)
     {
         if (!is_callable($editor) && !isset($this->editors[$editor])) {
-            throw new InvalidArgumentException("Unknown editor identifier: {$editor}. Known editors:" . array_join(',', array_keys($this->editors)));
+            throw new InvalidArgumentException("Unknown editor identifier: {$editor}. Known editors:" . implode(',', array_keys($this->editors)));
         }
         $this->editor = $editor;
     }
