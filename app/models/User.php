@@ -49,4 +49,51 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 		return $this->email;
 	}
 
+
+	/**
+	 * Register a new user on CAH
+	 *
+	 * @return string
+	 */
+	public static function registerNewUser(){
+		$input = Input::all();
+		$rules = array(
+			'reg_username' => 'required',
+			'reg_email' => 'email',
+			'reg_password' => 'required|confirmed'
+		);
+
+		$validator = Validator::make($input,$rules);
+		if($validator->fails()){
+			return Redirect::route('register2')->withErrors($validator);
+		}else {
+			dd('b');
+		}
+		
+		try
+		{
+		    // Let's register a user.
+		    $user = Sentry::register(array(
+		        'email'    => 'john.doe@example.com',
+		        'password' => 'test',
+		    ));
+
+		    // Let's get the activation code
+		    $activationCode = $user->getActivationCode();
+
+		    // Send activation code to the user so he can activate the account
+		}
+		catch (Cartalyst\Sentry\Users\LoginRequiredException $e)
+		{
+		    echo 'Login field is required.';
+		}
+		catch (Cartalyst\Sentry\Users\PasswordRequiredException $e)
+		{
+		    echo 'Password field is required.';
+		}
+		catch (Cartalyst\Sentry\Users\UserExistsException $e)
+		{
+		    echo 'User with this login already exists.';
+		}
+	}
 }

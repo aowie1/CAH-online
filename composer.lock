@@ -1160,16 +1160,16 @@
         },
         {
             "name": "swiftmailer/swiftmailer",
-            "version": "v5.0.0",
+            "version": "dev-master",
             "source": {
                 "type": "git",
                 "url": "https://github.com/swiftmailer/swiftmailer.git",
-                "reference": "v5.0.0"
+                "reference": "140ba9234deaaac3fda86ba1dc0e0191666f153a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/swiftmailer/swiftmailer/zipball/v5.0.0",
-                "reference": "v5.0.0",
+                "url": "https://api.github.com/repos/swiftmailer/swiftmailer/zipball/140ba9234deaaac3fda86ba1dc0e0191666f153a",
+                "reference": "140ba9234deaaac3fda86ba1dc0e0191666f153a",
                 "shasum": ""
             },
             "require": {
@@ -1178,7 +1178,7 @@
             "type": "library",
             "extra": {
                 "branch-alias": {
-                    "dev-master": "5.0-dev"
+                    "dev-master": "5.1-dev"
                 }
             },
             "autoload": {
@@ -1205,7 +1205,7 @@
                 "mail",
                 "mailer"
             ],
-            "time": "2013-04-30 17:35:30"
+            "time": "2013-05-09 08:24:09"
         },
         {
             "name": "symfony/browser-kit",
