@@ -10,7 +10,8 @@
 			Against<br/>
 			Humanity
 		</div>
-
+		
+		@yield('errors')
 		@yield('content')
 	</body>
 </html>

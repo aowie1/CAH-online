@@ -55,45 +55,38 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 	 *
 	 * @return string
 	 */
-	public static function registerNewUser(){
+	public function register(){
 		$input = Input::all();
 		$rules = array(
 			'reg_username' => 'required',
-			'reg_email' => 'email',
+			'reg_email' => 'required|email',
 			'reg_password' => 'required|confirmed'
 		);
 
 		$validator = Validator::make($input,$rules);
-		if($validator->fails()){
-			return $validator->messages();
-		}else {
-			return TRUE;
-		}
-		
-		try
-		{
-		    // Let's register a user.
-		    $user = Sentry::register(array(
-		        'email'    => 'john.doe@example.com',
-		        'password' => 'test',
-		    ));
+		$validator_failure = $validator->fails();
+		$messages = $validator->messages();
 
-		    // Let's get the activation code
-		    $activationCode = $user->getActivationCode();
+		if (!$validator_failure) {
+			try
+			{
+			    // Let's register a user.
+			    $user = Sentry::register(array(
+			        'email'    => Input::get('reg_username'),
+			        'password' => Input::get('reg_password')
+			    ));
 
-		    // Send activation code to the user so he can activate the account
+			    // Let's get the activation code
+			    $activationCode = $user->getActivationCode();
+
+			    // Send activation code to the user so he can activate the account
+			}
+			catch (Cartalyst\Sentry\Users\UserExistsException $e)
+			{
+			    $messages->add('reg_username', 'User with this login already exists.');
+			}
 		}
-		catch (Cartalyst\Sentry\Users\LoginRequiredException $e)
-		{
-		    echo 'Login field is required.';
-		}
-		catch (Cartalyst\Sentry\Users\PasswordRequiredException $e)
-		{
-		    echo 'Password field is required.';
-		}
-		catch (Cartalyst\Sentry\Users\UserExistsException $e)
-		{
-		    echo 'User with this login already exists.';
-		}
+
+		return $messages;
 	}
 }

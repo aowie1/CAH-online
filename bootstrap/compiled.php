@@ -157,6 +157,7 @@ class Container implements ArrayAccess
         // If no concrete type was given, we will simply set the concrete type to
         // the abstract. This allows concrete types to be registered as shared
         // without being made state their classes in both of the parameters.
+        unset($this->instances[$abstract]);
         if (is_null($concrete)) {
             $concrete = $abstract;
         }
@@ -181,7 +182,7 @@ class Container implements ArrayAccess
      */
     public function bindIf($abstract, $concrete = null, $shared = false)
     {
-        if (!isset($this[$abstract])) {
+        if (!$this->bound($abstract)) {
             $this->bind($abstract, $concrete, $shared);
         }
     }
@@ -588,6 +589,7 @@ use Symfony\Component\HttpKernel\Exception\FatalErrorException;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpFoundation\RedirectResponse as SymfonyRedirect;
 class Application extends Container implements HttpKernelInterface, ResponsePreparerInterface
 {
     /**
@@ -672,7 +674,26 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
     public function setRequestForConsoleEnvironment()
     {
         $url = $this['config']->get('app.url', 'http://localhost');
-        $this['request'] = Request::create($url, 'GET', array(), array(), array(), $_SERVER);
+        $this->instance('request', Request::create($url, 'GET', array(), array(), array(), $_SERVER));
+    }
+    /**
+     * Redirect the request if it has a trailing slash.
+     *
+     * @return \Symfony\Component\HttpFoundation\RedirectResponse|null
+     */
+    public function redirectIfTrailingSlash()
+    {
+        if ($this->runningInConsole()) {
+            return;
+        }
+        // Here we will check if the request path ends in a single trailing slash and
+        // redirect it using a 301 response code if it does which avoids duplicate
+        // content in this application while still providing a solid experience.
+        $path = $this['request']->getPathInfo();
+        if ($path != '/' and ends_with($path, '/') and !ends_with($path, '//')) {
+            with(new SymfonyRedirect($this['request']->fullUrl(), 301))->send();
+            die;
+        }
     }
     /**
      * Bind the installation paths to the application.
@@ -1003,7 +1024,7 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
      */
     public function handle(SymfonyRequest $request, $type = HttpKernelInterface::MASTER_REQUEST, $catch = true)
     {
-        $this['request'] = $request;
+        $this->instance('request', $request);
         Facade::clearResolvedInstance('request');
         return $this->dispatch($request);
     }
@@ -1094,7 +1115,7 @@ class Application extends Container implements HttpKernelInterface, ResponsePrep
      */
     public function isDownForMaintenance()
     {
-        return file_exists($this['path'] . '/storage/meta/down');
+        return file_exists($this['path.storage'] . '/meta/down');
     }
     /**
      * Register a maintenance mode event listener.
@@ -1280,7 +1301,8 @@ class Request extends \Symfony\Component\HttpFoundation\Request
      */
     public function fullUrl()
     {
-        return rtrim($this->getUri(), '/');
+        $query = $this->getQueryString();
+        return $query ? $this->url() . '?' . $query : $this->url();
     }
     /**
      * Get the current path info for the request.
@@ -1400,12 +1422,9 @@ class Request extends \Symfony\Component\HttpFoundation\Request
      */
     public function only($keys)
     {
-        $results = array();
         $keys = is_array($keys) ? $keys : func_get_args();
-        foreach ($keys as $key) {
-            $results[$key] = $this->get($key);
-        }
-        return $results;
+        $input = $this->input();
+        return array_only($input, $keys);
     }
     /**
      * Get all of the input except for a specified array of items.
@@ -1614,6 +1633,16 @@ class Request extends \Symfony\Component\HttpFoundation\Request
     public function isJson()
     {
         return str_contains($this->server->get('CONTENT_TYPE'), '/json');
+    }
+    /**
+     * Determine if the current request is asking for JSON in return.
+     *
+     * @return bool
+     */
+    public function wantsJson()
+    {
+        $acceptable = $this->getAcceptableContentTypes();
+        return isset($acceptable[0]) and $acceptable[0] == 'application/json';
     }
     /**
      * Get the Illuminate session store implementation.
@@ -5092,13 +5121,23 @@ class ExceptionServiceProvider extends ServiceProvider
      */
     protected function registerWhoopsHandler()
     {
-        if ($this->app['request']->ajax() or $this->app->runningInConsole()) {
+        if ($this->shouldReturnJson()) {
             $this->app['whoops.handler'] = function () {
                 return new JsonResponseHandler();
             };
         } else {
             $this->registerPrettyWhoopsHandler();
         }
+    }
+    /**
+     * Determine if the error provider should return JSON.
+     *
+     * @return bool
+     */
+    protected function shouldReturnJson()
+    {
+        $definitely = ($this->app['request']->ajax() or $this->app->runningInConsole());
+        return $definitely or $this->app['request']->wantsJson();
     }
     /**
      * Register the "pretty" Whoops handler.
@@ -8475,7 +8514,7 @@ class Router
      * @param  Closure|string  $callback
      * @return void
      */
-    public function addFilter($name, $callback)
+    public function filter($name, $callback)
     {
         $this->filters[$name] = $callback;
     }
@@ -8517,12 +8556,16 @@ class Router
      *
      * @param  string  $pattern
      * @param  string|array  $names
+     * @param  array|null  $methods
      * @return void
      */
-    public function matchFilter($pattern, $names)
+    public function when($pattern, $names, $methods = null)
     {
         foreach ((array) $names as $name) {
-            $this->patternFilters[$pattern][] = $name;
+            if (!is_null($methods)) {
+                $methods = array_change_key_case((array) $methods);
+            }
+            $this->patternFilters[$pattern][] = compact('name', 'methods');
         }
     }
     /**
@@ -8533,16 +8576,38 @@ class Router
      */
     public function findPatternFilters(Request $request)
     {
-        $filters = array();
-        foreach ($this->patternFilters as $pattern => $values) {
+        $results = array();
+        foreach ($this->patternFilters as $pattern => $filters) {
             // To find the pattern middlewares for a request, we just need to check the
             // registered patterns against the path info for the current request to
             // the application, and if it matches we'll merge in the middlewares.
             if (str_is('/' . $pattern, $request->getPathInfo())) {
-                $filters = array_merge($filters, $values);
+                $merge = $this->filterPatternsByMethod($request, $filters);
+                $results = array_merge($results, $merge);
             }
         }
-        return $filters;
+        return $results;
+    }
+    /**
+     * Filter pattern filters that don't apply to the request verb.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  array  $filters
+     * @return array
+     */
+    protected function filterPatternsByMethod(Request $request, $filters)
+    {
+        $results = array();
+        $method = strtolower($request->getMethod());
+        // The idea here is to check and see if the pattern filter applies to this HTTP
+        // request based on the request methods. Pattern filters might be limited by
+        // the request verb to make it simply to assign to the given verb at once.
+        foreach ($filters as $filter) {
+            if (is_null($filter['methods']) or in_array($method, $filter['methods'])) {
+                $results[] = $filter['name'];
+            }
+        }
+        return $results;
     }
     /**
      * Call the "after" global filters.
@@ -9419,6 +9484,17 @@ class Dispatcher
             return call_user_func_array($callable, $data);
         };
     }
+    /**
+     * Remove a set of listeners from the dispatcher.
+     *
+     * @param  string  $event
+     * @return void
+     */
+    public function forget($event)
+    {
+        unset($this->listeners[$event]);
+        unset($this->sorted[$event]);
+    }
 }
 namespace Illuminate\Database\Eloquent;
 
@@ -9518,12 +9594,6 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
      * @var array
      */
     protected $guarded = array('*');
-    /**
-     * The date fields for the model.clear
-     *
-     * @var array
-     */
-    protected $dates = array();
     /**
      * The relationships that should be touched on save.
      *
@@ -9634,6 +9704,25 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
                     $matches[1] = snake_case($matches[1]);
                 }
                 static::$mutatorCache[$class][] = lcfirst($matches[1]);
+            }
+        }
+    }
+    /**
+     * Register an observer with the Model.
+     *
+     * @param  object  $class
+     * @return void
+     */
+    public static function observe($class)
+    {
+        $instance = new static();
+        $className = get_class($class);
+        // When registering a model observer, we will spin through the possible events
+        // and determine if this observer has that method. If it does, we will hook
+        // it into the model's event system, making it convenient to watch these.
+        foreach ($instance->getObservableEvents() as $event) {
+            if (method_exists($class, $event)) {
+                static::registerModelEvent($event, $className . '@' . $event);
             }
         }
     }
@@ -10105,6 +10194,21 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         static::registerModelEvent('deleted', $callback);
     }
     /**
+     * Remove all of the event listeners for the model.
+     *
+     * @return void
+     */
+    public static function flushEventListeners()
+    {
+        if (!isset(static::$dispatcher)) {
+            return;
+        }
+        $instance = new static();
+        foreach ($instance->getObservableEvents() as $event) {
+            static::$dispatcher->forget("eloquent.{$event}: " . get_called_class());
+        }
+    }
+    /**
      * Register a model event with the dispatcher.
      *
      * @param  string   $event
@@ -10117,6 +10221,15 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
             $name = get_called_class();
             static::$dispatcher->listen("eloquent.{$event}: {$name}", $callback);
         }
+    }
+    /**
+     * Get the observable event names.
+     *
+     * @return array
+     */
+    public function getObservableEvents()
+    {
+        return array('creating', 'created', 'updating', 'updated', 'deleting', 'deleted', 'saving', 'saved');
     }
     /**
      * Increment a column's value by a given amount.
@@ -10354,8 +10467,11 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
      */
     protected function updateTimestamps()
     {
-        $this->setUpdatedAt($time = $this->freshTimestamp());
-        if (!$this->exists) {
+        $time = $this->freshTimestamp();
+        if (!$this->isDirty(static::UPDATED_AT)) {
+            $this->setUpdatedAt($this->freshTimestamp());
+        }
+        if (!$this->exists and !$this->isDirty(static::CREATED_AT)) {
             $this->setCreatedAt($time);
         }
     }
@@ -10819,7 +10935,7 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
     public function attributesToArray()
     {
         $attributes = $this->getAccessibleAttributes();
-        // We want to spin through all the mutated attribtues for this model and call
+        // We want to spin through all the mutated attributes for this model and call
         // the mutator for the attribute. We cache off every mutated attributes so
         // we don't have to constantly check on attributes that actually change.
         foreach ($this->getMutatedAttributes() as $key) {
@@ -10921,7 +11037,7 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         // retrieval from the model to a form that is more useful for usage.
         if ($this->hasGetMutator($key)) {
             return $this->mutateAttribute($key, $value);
-        } elseif (in_array($key, $this->dates)) {
+        } elseif (in_array($key, $this->getDates())) {
             if ($value) {
                 return $this->asDateTime($value);
             }
@@ -10976,7 +11092,7 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         if ($this->hasSetMutator($key)) {
             $method = 'set' . studly_case($key) . 'Attribute';
             return $this->{$method}($value);
-        } elseif (in_array($key, $this->dates)) {
+        } elseif (in_array($key, $this->getDates())) {
             if ($value) {
                 $value = $this->fromDateTime($value);
             }
@@ -10992,6 +11108,15 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
     public function hasSetMutator($key)
     {
         return method_exists($this, 'set' . studly_case($key) . 'Attribute');
+    }
+    /**
+     * Get the attributes that should be converted to dates.
+     *
+     * @return array
+     */
+    public function getDates()
+    {
+        return array(static::CREATED_AT, static::UPDATED_AT, static::DELETED_AT);
     }
     /**
      * Convert a DateTime to a storable string.
@@ -11082,6 +11207,16 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
         return $this;
     }
     /**
+     * Determine if a given attribute is dirty.
+     *
+     * @param  string  $attribute
+     * @return bool
+     */
+    public function isDirty($attribute)
+    {
+        return array_key_exists($attribute, $this->getDirty());
+    }
+    /**
      * Get the attributes that have been changed since last sync.
      *
      * @return array
@@ -11090,7 +11225,7 @@ abstract class Model implements ArrayAccess, ArrayableInterface, JsonableInterfa
     {
         $dirty = array();
         foreach ($this->attributes as $key => $value) {
-            if (!array_key_exists($key, $this->original) or $value != $this->original[$key]) {
+            if (!array_key_exists($key, $this->original) or $value !== $this->original[$key]) {
                 $dirty[$key] = $value;
             }
         }
@@ -12014,7 +12149,7 @@ class SessionManager extends Manager
     protected function getOptions()
     {
         $config = $this->app['config']['session'];
-        return array('cookie_domain' => $config['domain'], 'cookie_lifetime' => $config['lifetime'] * 60, 'cookie_path' => $config['path'], 'gc_divisor' => $config['lottery'][1], 'gc_probability' => $config['lottery'][0], 'name' => $config['cookie']);
+        return array('cookie_domain' => $config['domain'], 'cookie_lifetime' => $config['lifetime'] * 60, 'cookie_path' => $config['path'], 'cookie_httponly' => '1', 'name' => $config['cookie'], 'gc_divisor' => $config['lottery'][1], 'gc_probability' => $config['lottery'][0]);
     }
     /**
      * Get the default session driver name.
@@ -13896,6 +14031,7 @@ class WhoopsDisplayer implements ExceptionDisplayerInterface
      */
     public function display(Exception $exception)
     {
+        header('HTTP/1.1 500 Internal Server Error');
         $this->whoops->handleException($exception);
     }
 }
@@ -14203,28 +14339,6 @@ namespace Illuminate\Support\Facades;
 
 class Route extends Facade
 {
-    /**
-     * Register a new filter with the application.
-     *
-     * @param  string   $name
-     * @param  Closure|string  $callback
-     * @return void
-     */
-    public static function filter($name, $callback)
-    {
-        return static::$app['router']->addFilter($name, $callback);
-    }
-    /**
-     * Tie a registered middleware to a URI pattern.
-     *
-     * @param  string  $pattern
-     * @param  string|array  $name
-     * @return void
-     */
-    public static function when($pattern, $name)
-    {
-        return static::$app['router']->matchFilter($pattern, $name);
-    }
     /**
      * Determine if the current route matches a given name.
      *

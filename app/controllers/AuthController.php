@@ -6,11 +6,11 @@ class AuthController extends Controller {
 	public function postRegister()
 	{
 		$user = new User;
-		$user_reg = $user->registerNewUser();
+		$validatorStatus = $user->register();
 
-		if ($user_reg !== TRUE)
+		if ($validatorStatus !== TRUE)
 		{
-			return Redirect::to('register')->withErrors($user_reg);
+			return Redirect::to('register')->withErrors($validatorStatus);
 		}
 	}
 
