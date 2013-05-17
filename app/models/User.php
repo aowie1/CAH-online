@@ -72,7 +72,7 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 			{
 			    // Let's register a user.
 			    $user = Sentry::register(array(
-			        'email'    => Input::get('reg_username'),
+			        'email'    => Input::get('reg_email'),
 			        'password' => Input::get('reg_password')
 			    ));
 

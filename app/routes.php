@@ -21,4 +21,9 @@ Route::get('register', function()
 	return View::make('register.form');
 });
 
+Route::get('register/success', function()
+{
+	return View::make('register.success');
+});
+
 Route::post('register', 'AuthController@postRegister');
