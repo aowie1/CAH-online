@@ -7,10 +7,15 @@ class AuthController extends Controller {
 	{
 		$user = new User;
 		$validatorStatus = $user->register();
+		$validatorErrors = $validatorStatus->all();
 
-		if ($validatorStatus !== TRUE)
+		if (!empty($validatorErrors))
 		{
 			return Redirect::to('register')->withErrors($validatorStatus);
+		}
+		else
+		{
+			return Redirect::to('register/success');
 		}
 	}
 
