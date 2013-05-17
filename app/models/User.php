@@ -65,7 +65,7 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 
 		$validator = Validator::make($input,$rules);
 		if($validator->fails()){
-			return Redirect::route('register2')->withErrors($validator);
+			return Redirect::to('register')->withErrors($validator);
 		}else {
 			dd('b');
 		}
