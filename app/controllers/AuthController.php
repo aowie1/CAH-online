@@ -5,8 +5,13 @@ class AuthController extends Controller {
 
 	public function postRegister()
 	{
-		echo "a";
-		User::registerNewUser();
+		$user = new User;
+		$user_reg = $user->registerNewUser();
+
+		if ($user_reg !== TRUE)
+		{
+			return Redirect::to('register')->withErrors($user_reg);
+		}
 	}
 
 }
