@@ -14,18 +14,6 @@
 		@yield('content')
 		
 		<div class="content">
-			<div class="username">
-				Your Username:
-				<input type="text" name="username" />
-			</div>
-			<div>
-				<a class="button" href="#">
-					Create New Game
-				</a>
-				<a class="button" href="#">
-					Join Existing Game
-				</a>
-			</div>
 			<div class="credits">
 				Credits
 				<br /><br />
