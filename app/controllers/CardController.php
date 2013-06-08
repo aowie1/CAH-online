@@ -27,14 +27,8 @@ class CardController extends BaseController {
 		$card = new $card_model;
 		$messages = $card->store();
 
-		if ($messages->get('success'))
-		{
-			$this->layout->content =  View::make('cards.'.$type.'.create')->with('messages', $messages->getMessageBag());
-		}
-		else
-		{
-			$this->layout->content =  View::make('cards.'.$type.'.create')->with('messages', $messages->getMessageBag());
-		}
+		
+		$this->layout->content =  View::make('cards.'.$type.'.create')->with('messages', $messages->getMessageBag());
 	}
 
 }
