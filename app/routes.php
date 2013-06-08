@@ -27,3 +27,6 @@ Route::get('register/success', function()
 });
 
 Route::post('register', 'AuthController@postRegister');
+
+Route::get('card/{type}', 'CardController@create');
+Route::post('card/{type}', 'CardController@store');
