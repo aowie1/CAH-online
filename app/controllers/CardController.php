@@ -17,7 +17,7 @@ class CardController extends BaseController {
 
 	public function getCreate($type)
 	{
-		$this->layout->content = View::make('cards.'.$type.'.create')->with('messages', $this->messages->getMessageBag());;
+		$this->layout->content = View::make('cards.'.$type.'.create');
 	}
 
 	public function postStore($type)
