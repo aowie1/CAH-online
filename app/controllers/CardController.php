@@ -17,7 +17,7 @@ class CardController extends BaseController {
 
 	public function getCreate($type)
 	{
-		$this->layout->content = View::make('cards.'.$type.'.create');
+		$this->layout->content = View::make('cards.'.$type.'.create')->with('messages', $this->messages->getMessageBag());;
 	}
 
 	public function postStore($type)
@@ -25,17 +25,15 @@ class CardController extends BaseController {
 		$card_model = (string) ucfirst($type).'Card';
 
 		$card = new $card_model;
-		// $card->creator_id = User::current_user_id();
-		$card->copy = Input::get('copy');
-		$card->blanks = Input::get('blanks');
+		$messages = $card->store();
 
-		if ($card->save())
+		if ($messages->get('success'))
 		{
-			$this->layout->content = View::make('hello')->with('success', 'Yay! Card created.');
+			$this->layout->content =  View::make('cards.'.$type.'.create')->with('messages', $messages->getMessageBag());
 		}
 		else
 		{
-			$this->layout->content = View::make('hello')->with('error', 'Booo! Card not created.');
+			$this->layout->content =  View::make('cards.'.$type.'.create')->with('messages', $messages->getMessageBag());
 		}
 	}
 
