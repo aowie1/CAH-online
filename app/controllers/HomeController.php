@@ -17,10 +17,9 @@ class HomeController extends BaseController {
 	public $restful = true;
 	public $layout = 'layouts.master';
 
-	public function showWelcome()
+	public function postCreate('black')
 	{
-		
-		$this->layout->content = View::make('hello');
+		BlackCard
 	}
 
 }

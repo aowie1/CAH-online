@@ -1,6 +1,10 @@
+@extends('layouts.master')
+
 @section('content')
-{{ Form::open(array('url' => 'card/black')) }}
-	{{ Form::text('name') }}
-	{{ Form::submit() }}
+{{ Form::open() }}
+	{{ Form::token() }}
+	{{ Form::label('copy') }} {{ Form::text('copy') }}
+	{{ Form::label('blanks') }} {{ Form::text('blanks') }}
+	{{ Form::submit('Submit') }}
 {{ Form::close() }}
 @stop

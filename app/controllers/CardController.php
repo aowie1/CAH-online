@@ -15,17 +15,21 @@ class CardController extends BaseController {
 	public $restful = true;
 	public $layout = 'layouts.master';
 
-	public function create($type)
+	public function getCreate($type)
 	{
 		$this->layout->content = View::make('cards.'.$type.'.create');
 	}
 
-	public function store($type)
+	public function postStore($type)
 	{
 		$card_model = (string) ucfirst($type).'Card';
 
 		$card = new $card_model;
-		if ($card->Store())
+		// $card->creator_id = User::current_user_id();
+		$card->copy = Input::get('copy');
+		$card->blanks = Input::get('blanks');
+
+		if ($card->save())
 		{
 			$this->layout->content = View::make('hello')->with('success', 'Yay! Card created.');
 		}

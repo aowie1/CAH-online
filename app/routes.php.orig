@@ -25,3 +25,4 @@ Route::post('register', 'AuthController@postRegister');
 
 Route::get('card/{type}', 'CardController@getCreate');
 Route::post('card/{type}', array('before' => 'csrf', 'uses' => 'CardController@postStore'));
+

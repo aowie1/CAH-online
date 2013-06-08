@@ -14,6 +14,7 @@ class AlterTableAddUsernameColumn extends Migration {
 		Schema::table('users', function($table){
 			$table->string('username')->unique();
 		});
+
 		DB::statement('ALTER TABLE users MODIFY username varchar(255) AFTER id;');
 	}
 
