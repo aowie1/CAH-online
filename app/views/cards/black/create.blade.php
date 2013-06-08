@@ -1,7 +1,7 @@
 @extends('layouts.master')
 
 @section('content')
-@if ($messages)
+@if (!empty($messages))
 	@foreach($messages->all() as $message)
 		<p>{{ $message }}</p>
 	@endforeach
