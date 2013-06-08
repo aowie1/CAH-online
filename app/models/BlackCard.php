@@ -12,6 +12,8 @@ class BlackCard extends Eloquent {
 	public function store()
 	{
 		$input = Input::all();
+
+		$rules = array(
 			'copy' => 'required|unique:black_cards',
 			'blanks' => 'required|integer'
 		);
