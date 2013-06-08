@@ -15,6 +15,7 @@
 
 		echo Form::label('reg-password-confirmation', 'Verify Password: ');
 		echo Form::password('reg_password_confirmation', array('id'=>'reg-password-confirmation'))."<br />";
+		echo Form::captcha()."<br />";
 
 		echo Form::submit('Register');
 	echo Form::close();
