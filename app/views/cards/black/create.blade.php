@@ -1,6 +1,12 @@
 @extends('layouts.master')
 
 @section('content')
+@if ($messages)
+	@foreach($messages->all() as $message)
+		<p>{{ $message }}</p>
+	@endforeach
+@endif
+
 {{ Form::open() }}
 	{{ Form::token() }}
 	{{ Form::label('copy') }} {{ Form::text('copy') }}
