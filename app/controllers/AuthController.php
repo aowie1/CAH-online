@@ -5,6 +5,7 @@ class AuthController extends Controller {
 
 	public function postRegister()
 	{
+		// dd(Input::get());
 		$user = new User;
 		$validatorStatus = $user->register();
 		$validatorErrors = $validatorStatus->all();
