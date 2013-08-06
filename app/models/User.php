@@ -73,6 +73,7 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 			{
 			    // Let's register a user.
 			    $user = Sentry::register(array(
+			    	'username' => Input::get('username'),
 			        'email'    => Input::get('reg_email'),
 			        'password' => Input::get('reg_password')
 			    ));
@@ -89,5 +90,40 @@ class User extends Eloquent implements UserInterface, RemindableInterface {
 		}
 
 		return $messages;
+	}
+
+	public static function authenticate()
+	{
+		try
+		{
+		    // Set login credentials
+		    $credentials = array(
+		        'username'    => Input::get('username'),
+		        'password' => Input::get('password'),
+		    );
+
+		    // Try to authenticate the user
+		    return $user = Sentry::authenticateAndRemember($credentials);
+		}
+		catch (Cartalyst\Sentry\Users\LoginRequiredException $e)
+		{
+		    echo 'Login field is required.';
+		}
+		catch (Cartalyst\Sentry\Users\PasswordRequiredException $e)
+		{
+		    echo 'Password field is required.';
+		}
+		catch (Cartalyst\Sentry\Users\WrongPasswordException $e)
+		{
+		    echo 'Wrong password, try again.';
+		}
+		catch (Cartalyst\Sentry\Users\UserNotFoundException $e)
+		{
+		    echo 'User was not found.';
+		}
+		catch (Cartalyst\Sentry\Users\UserNotActivatedException $e)
+		{
+		    echo 'User is not activated.';
+		}
 	}
 }

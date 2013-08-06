@@ -11,17 +11,22 @@
 |
 */
 
-Route::get('register', function()
+// Common Routes
+Route::get('/', function()
 {
 	return View::make('register.form');
 });
 
-Route::get('register/success', function()
-{
-	return View::make('register.success');
-});
-
+// Auth Routes
+Route::get('register', 'AuthController@getRegister');
+Route::get('register/success', function() {	return View::make('register.success'); });
 Route::post('register', 'AuthController@postRegister');
 
+Route::get('login', 'AuthController@getLogin');
+Route::post('login', 'AuthController@postLogin');
+
+Route::get('forgot', 'AuthController@getForgotPW');
+
+// Card Routes
 Route::get('card/{type}', 'CardController@getCreate');
 Route::post('card/{type}', array('before' => 'csrf', 'uses' => 'CardController@postStore'));
